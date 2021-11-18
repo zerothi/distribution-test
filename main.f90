@@ -289,11 +289,11 @@ contains
       call dist%occupation(ef, eig3d, wk, occ3d)
       sumq = sum(occ3d)
 
-!      print *, ef, sumq
       if ( check_Ef(sumq, qtot) ) exit
       if ( sumq <= qtot ) emin = ef
       if ( sumq >= qtot ) emax = ef
 
+      !print *, ef, sumq
       ef = (emin + emax) * 0.5_dp
 
     end do
@@ -316,7 +316,6 @@ contains
       call dist%occupation(ef, eig3d, wk, occ3d, dsumq)
 
       sumq = sum(occ3d)
-      !print *, Ef, sumq, dsumq, dEf
       
       if ( check_Ef(sumq, qtot) ) exit
       if ( sumq <= qtot ) emin = ef
@@ -326,8 +325,9 @@ contains
       Ef = Ef + dEf
       if ( Ef < emin .or. emax < Ef .or. abs(dEf) < tol ** 2 ) then
         ef = (emin + emax) * 0.5_dp
+        !print *, 'NOT ', Ef, sumq, dsumq, dEf
       else
-        !print *, 'used dEf'
+        !print *, 'USED', Ef, sumq, dsumq, dEf
       end if
       
     end do
