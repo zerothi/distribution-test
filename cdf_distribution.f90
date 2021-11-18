@@ -12,14 +12,18 @@
 !! 3. Cold-smearing, an optimized distribution function which approaches
 !!    the kT = 0 limit, for rather high temperatures.
 !!    This also has 2 minima.
-!! 4. Gaussian, the regular normal distribution which acts very close
-!!    to the Cold method in terms of entropy.
+!! 4. Gaussian, the regular normal distribution.
+!! 5. Cauchy, the regular Cauchy distribution.
 !!
 !! A user should be careful about either uses.
 !!
 !! In the following we denote \f(D(E, E_F, kT)\f) as the occupation of the
 !! eigenstate with energy \f(E\f) with given parameters.
 !! The variable \f(\sigma\f) will denote the entropy.
+!!
+!!
+!! The entire algorithm is unit agnostic with the only requirement
+!! being that the input arguments (Ef, E and kT) have the same unit.
 !!
 !! @author Nick Papior, 2021
 module cdf_distribution_m
@@ -30,6 +34,8 @@ module cdf_distribution_m
   implicit none
   private
 
+  !< Unset method specifier
+  integer, parameter, public :: CDF_DISTRIBUTION_NOT_SET = 0
   !< Fermi-Dirac method specifier
   integer, parameter, public :: CDF_DISTRIBUTION_FERMI_DIRAC = 1
   !< Methfessel-Paxton method specifier
@@ -38,6 +44,8 @@ module cdf_distribution_m
   integer, parameter, public :: CDF_DISTRIBUTION_COLD = 3
   !< Gaussian-smearing method specifier
   integer, parameter, public :: CDF_DISTRIBUTION_GAUSSIAN = 4
+  !< Cauchy-smearing method specifier
+  integer, parameter, public :: CDF_DISTRIBUTION_CAUCHY = 5
 
 
   !< Inverse Pi
@@ -71,9 +79,17 @@ module cdf_distribution_m
 
     procedure, public :: init => fermi_dirac_init
 
+    procedure, private :: fermi_dirac_delta_elemental
+    generic, public :: delta => fermi_dirac_delta_elemental
+    
+    procedure, private :: fermi_dirac_occupation_elemental
     procedure, private :: fermi_dirac_occupation_3d
+    procedure, private :: fermi_dirac_occupation_diff_3d
     procedure, private :: fermi_dirac_occupation_derivative_3d
-    generic, public :: occupation => fermi_dirac_occupation_3d, fermi_dirac_occupation_derivative_3d
+    generic, public :: occupation => &
+        fermi_dirac_occupation_elemental, &
+        fermi_dirac_occupation_3d, fermi_dirac_occupation_diff_3d, &
+        fermi_dirac_occupation_derivative_3d
 
     procedure, private :: fermi_dirac_entropy_3d
     generic, public :: entropy => fermi_dirac_entropy_3d
@@ -90,20 +106,30 @@ module cdf_distribution_m
   !! \f[
   !!   D(E, E_F, kT) = \frac{1}{2}\operatorname{erfc}[(E-E_F)/kT] ...
   !! \f]
+  !!
+  !! It is explained in this paper: Improved step function. Ref: Methfessel & Paxton PRB40 (15/Aug/89)
   type methfessel_paxton_t
 
     !< The Methfessel-Paxton order
-    integer :: N
+    integer :: N = 4
     !< The inverse Boltzmann temperature [Ry]
-    real(dp) :: inv_kT
+    real(dp) :: inv_kT 
 
   contains
 
     procedure, public :: init => methfessel_paxton_init
-    
+
+    procedure, private :: methfessel_paxton_delta_elemental
+    generic, public :: delta => methfessel_paxton_delta_elemental
+
+    procedure, private :: methfessel_paxton_occupation_elemental
     procedure, private :: methfessel_paxton_occupation_3d
+    procedure, private :: methfessel_paxton_occupation_diff_3d
     procedure, private :: methfessel_paxton_occupation_derivative_3d
-    generic, public :: occupation => methfessel_paxton_occupation_3d, methfessel_paxton_occupation_derivative_3d
+    generic, public :: occupation => &
+        methfessel_paxton_occupation_elemental, &
+        methfessel_paxton_occupation_3d, methfessel_paxton_occupation_diff_3d, &
+        methfessel_paxton_occupation_derivative_3d
 
     procedure, private :: methfessel_paxton_entropy_3d
     generic, public :: entropy => methfessel_paxton_entropy_3d
@@ -113,6 +139,9 @@ module cdf_distribution_m
 
   end type methfessel_paxton_t
 
+  !< Cold (Marzari-Vanderbilt) distribution function
+  !!
+  !! Cold smearing function. Ref: Marzari-Vanderbilt PRL82, 16, 1999
   public :: cold_t
   !< Cold distribution
   type cold_t
@@ -124,9 +153,17 @@ module cdf_distribution_m
 
     procedure, public :: init => cold_init
 
+    procedure, private :: cold_delta_elemental
+    generic, public :: delta => cold_delta_elemental
+
+    procedure, private :: cold_occupation_elemental
     procedure, private :: cold_occupation_3d
+    procedure, private :: cold_occupation_diff_3d
     procedure, private :: cold_occupation_derivative_3d
-    generic, public :: occupation => cold_occupation_3d, cold_occupation_derivative_3d
+    generic, public :: occupation => &
+        cold_occupation_elemental, &
+        cold_occupation_3d, cold_occupation_diff_3d, &
+        cold_occupation_derivative_3d
 
     procedure, private :: cold_entropy_3d
     generic, public :: entropy => cold_entropy_3d
@@ -145,9 +182,18 @@ module cdf_distribution_m
 
     procedure, public :: init => gaussian_init
 
+    procedure, private :: gaussian_delta_elemental
+    generic, public :: delta => gaussian_delta_elemental
+    
+    procedure, private :: gaussian_occupation_elemental
     procedure, private :: gaussian_occupation_3d
+    procedure, private :: gaussian_occupation_diff_3d
+
     procedure, private :: gaussian_occupation_derivative_3d
-    generic, public :: occupation => gaussian_occupation_3d, gaussian_occupation_derivative_3d
+    generic, public :: occupation => &
+        gaussian_occupation_elemental, &
+        gaussian_occupation_3d, gaussian_occupation_diff_3d, &
+        gaussian_occupation_derivative_3d
 
     procedure, private :: gaussian_entropy_3d
     generic, public :: entropy => gaussian_entropy_3d
@@ -155,67 +201,220 @@ module cdf_distribution_m
   end type gaussian_t
 
 
+  public :: cauchy_t
+  !< Cauchy distribution
+  type cauchy_t
+
+    !< The inverse Boltzmann temperature [Ry]
+    real(dp) :: inv_kT
+
+  contains
+
+    procedure, public :: init => cauchy_init
+
+    procedure, private :: cauchy_delta_elemental
+    generic, public :: delta => cauchy_delta_elemental
+
+    procedure, private :: cauchy_occupation_elemental
+    procedure, private :: cauchy_occupation_3d
+    procedure, private :: cauchy_occupation_diff_3d
+
+    procedure, private :: cauchy_occupation_derivative_3d
+    generic, public :: occupation => &
+        cauchy_occupation_elemental, &
+        cauchy_occupation_3d, cauchy_occupation_diff_3d, &
+        cauchy_occupation_derivative_3d
+
+    procedure, private :: cauchy_entropy_3d
+    generic, public :: entropy => cauchy_entropy_3d
+
+  end type cauchy_t
+
+
   public :: cdf_distribution_t
   type cdf_distribution_t
 
-    integer :: METHOD
+    integer :: method = CDF_DISTRIBUTION_NOT_SET
     type(fermi_dirac_t) :: fd
     type(methfessel_paxton_t) :: mp
     type(cold_t) :: cold
     type(gaussian_t) :: gauss
-    
+    type(cauchy_t) :: cauchy
+
   contains
 
-    procedure, public :: init => cdf_distribution_init
-
+    procedure, private :: cdf_distribution_occupation_elemental
     procedure, private :: cdf_distribution_occupation_3d
-    generic, public :: occupation => cdf_distribution_occupation_3d
+    procedure, private :: cdf_distribution_occupation_diff_3d
+    procedure, private :: cdf_distribution_occupation_derivative_3d
+    generic, public :: occupation => &
+        cdf_distribution_occupation_elemental, &
+        cdf_distribution_occupation_3d, cdf_distribution_occupation_diff_3d, &
+        cdf_distribution_occupation_derivative_3d
+
 
     procedure, private :: cdf_distribution_entropy_3d
     generic, public :: entropy => cdf_distribution_entropy_3d
+
+    procedure, public :: get_kT => cdf_distribution_get_kT
 
   end type cdf_distribution_t
 
 contains
 
-  subroutine cdf_distribution_init(this, kT)
-    class(cdf_distribution_t), intent(inout) :: this
-    real(dp), intent(in) :: kT
-
-  end subroutine cdf_distribution_init
-    
-  subroutine cdf_distribution_occupation_3d(this, E0, E, wk, occ)
+  pure function cdf_distribution_get_kT(this) result(kT)
     class(cdf_distribution_t), intent(in) :: this
-    real(dp), intent(in) :: E0, E(:,:,:), wk(:)
+    real(dp) :: kT
+
+    select case ( this%METHOD )
+    case ( CDF_DISTRIBUTION_FERMI_DIRAC )
+      kT = 1._dp / this%fd%inv_kT
+    case ( CDF_DISTRIBUTION_METHFESSEL_PAXTON )
+      kT = 1._dp / this%mp%inv_kT
+    case ( CDF_DISTRIBUTION_COLD )
+      kT = 1._dp / this%cold%inv_kT
+    case ( CDF_DISTRIBUTION_GAUSSIAN )
+      kT = 1._dp / this%gauss%inv_kT
+    case ( CDF_DISTRIBUTION_CAUCHY )
+      kT = 1._dp / this%cauchy%inv_kT
+    case default
+      ! Pure functions cannot call die
+      kT = -1000._dp
+    end select
+
+  end function cdf_distribution_get_kT
+
+  elemental function cdf_distribution_delta_elemental(this, Estate, E) result(delta)
+    class(cdf_distribution_t), intent(in) :: this
+    real(dp), intent(in) :: Estate, E
+    real(dp) :: delta
+
+    select case ( this%METHOD )
+    case ( CDF_DISTRIBUTION_FERMI_DIRAC )
+      delta = this%fd%delta(Estate, E)
+    case ( CDF_DISTRIBUTION_METHFESSEL_PAXTON )
+      delta = this%mp%delta(Estate, E)
+    case ( CDF_DISTRIBUTION_COLD )
+      delta = this%cold%delta(Estate, E)
+    case ( CDF_DISTRIBUTION_GAUSSIAN )
+      delta = this%gauss%delta(Estate, E)
+    case ( CDF_DISTRIBUTION_CAUCHY )
+      delta = this%cauchy%delta(Estate, E)
+    case default
+      ! Elemental functions cannot call die
+      delta = -1000._dp
+    end select
+
+  end function cdf_distribution_delta_elemental
+  
+  elemental subroutine cdf_distribution_occupation_elemental(this, Ef, E, occ)
+    class(cdf_distribution_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E
+    real(dp), intent(inout) :: occ
+
+    select case ( this%METHOD )
+    case ( CDF_DISTRIBUTION_FERMI_DIRAC )
+      call this%fd%occupation(Ef, E, occ)
+    case ( CDF_DISTRIBUTION_METHFESSEL_PAXTON )
+      call this%mp%occupation(Ef, E, occ)
+    case ( CDF_DISTRIBUTION_COLD )
+      call this%cold%occupation(Ef, E, occ)
+    case ( CDF_DISTRIBUTION_GAUSSIAN )
+      call this%gauss%occupation(Ef, E, occ)
+    case ( CDF_DISTRIBUTION_CAUCHY )
+      call this%cauchy%occupation(Ef, E, occ)
+    case default
+      ! Elemental functions cannot call die
+      occ = -1000._dp
+    end select
+
+  end subroutine cdf_distribution_occupation_elemental
+
+  subroutine cdf_distribution_occupation_diff_3d(this, Ef, E, wk, occ)
+    class(cdf_distribution_t), intent(in) :: this
+    real(dp), intent(in) :: Ef(2), E(:,:,:), wk(:)
     real(dp), intent(inout) :: occ(:,:,:)
 
     select case ( this%METHOD )
     case ( CDF_DISTRIBUTION_FERMI_DIRAC )
-      call this%fd%occupation(E0, E, wk, occ)
+      call this%fd%occupation(Ef, E, wk, occ)
     case ( CDF_DISTRIBUTION_METHFESSEL_PAXTON )
-      call this%mp%occupation(E0, E, wk, occ)
+      call this%mp%occupation(Ef, E, wk, occ)
     case ( CDF_DISTRIBUTION_COLD )
-      call this%cold%occupation(E0, E, wk, occ)
+      call this%cold%occupation(Ef, E, wk, occ)
     case ( CDF_DISTRIBUTION_GAUSSIAN )
-      call this%gauss%occupation(E0, E, wk, occ)
+      call this%gauss%occupation(Ef, E, wk, occ)
+    case ( CDF_DISTRIBUTION_CAUCHY )
+      call this%cauchy%occupation(Ef, E, wk, occ)
+    case default
+      stop
+    end select
+
+  end subroutine cdf_distribution_occupation_diff_3d
+  
+  subroutine cdf_distribution_occupation_3d(this, Ef, E, wk, occ)
+    class(cdf_distribution_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E(:,:,:), wk(:)
+    real(dp), intent(inout) :: occ(:,:,:)
+
+    select case ( this%METHOD )
+    case ( CDF_DISTRIBUTION_FERMI_DIRAC )
+      call this%fd%occupation(Ef, E, wk, occ)
+    case ( CDF_DISTRIBUTION_METHFESSEL_PAXTON )
+      call this%mp%occupation(Ef, E, wk, occ)
+    case ( CDF_DISTRIBUTION_COLD )
+      call this%cold%occupation(Ef, E, wk, occ)
+    case ( CDF_DISTRIBUTION_GAUSSIAN )
+      call this%gauss%occupation(Ef, E, wk, occ)
+    case ( CDF_DISTRIBUTION_CAUCHY )
+      call this%cauchy%occupation(Ef, E, wk, occ)
+    case default
+      stop
     end select
 
   end subroutine cdf_distribution_occupation_3d
 
-  subroutine cdf_distribution_entropy_3d(this, E0, E, wk, occ, entropy)
+  subroutine cdf_distribution_occupation_derivative_3d(this, Ef, E, wk, occ, docc)
     class(cdf_distribution_t), intent(in) :: this
-    real(dp), intent(in) :: E0, E(:,:,:), wk(:), occ(:,:,:)
+    real(dp), intent(in) :: Ef, E(:,:,:), wk(:)
+    real(dp), intent(inout) :: occ(:,:,:)
+    real(dp), intent(out) :: docc
+
+    select case ( this%METHOD )
+    case ( CDF_DISTRIBUTION_FERMI_DIRAC )
+      call this%fd%occupation(Ef, E, wk, occ, docc)
+    case ( CDF_DISTRIBUTION_METHFESSEL_PAXTON )
+      call this%mp%occupation(Ef, E, wk, occ, docc)
+    case ( CDF_DISTRIBUTION_COLD )
+      call this%cold%occupation(Ef, E, wk, occ, docc)
+    case ( CDF_DISTRIBUTION_GAUSSIAN )
+      call this%gauss%occupation(Ef, E, wk, occ, docc)
+    case ( CDF_DISTRIBUTION_CAUCHY )
+      call this%cauchy%occupation(Ef, E, wk, occ, docc)
+    case default
+      stop
+    end select
+
+  end subroutine cdf_distribution_occupation_derivative_3d
+
+  subroutine cdf_distribution_entropy_3d(this, Ef, E, wk, occ, entropy)
+    class(cdf_distribution_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E(:,:,:), wk(:), occ(:,:,:)
     real(dp), intent(out) :: entropy
 
     select case ( this%METHOD )
     case ( CDF_DISTRIBUTION_FERMI_DIRAC )
-      call this%fd%entropy(E0, E, wk, occ, entropy)
+      call this%fd%entropy(Ef, E, wk, occ, entropy)
     case ( CDF_DISTRIBUTION_METHFESSEL_PAXTON )
-      call this%mp%entropy(E0, E, wk, occ, entropy)
+      call this%mp%entropy(Ef, E, wk, occ, entropy)
     case ( CDF_DISTRIBUTION_COLD )
-      call this%cold%entropy(E0, E, wk, occ, entropy)
+      call this%cold%entropy(Ef, E, wk, occ, entropy)
     case ( CDF_DISTRIBUTION_GAUSSIAN )
-      call this%gauss%entropy(E0, E, wk, occ, entropy)
+      call this%gauss%entropy(Ef, E, wk, occ, entropy)
+    case ( CDF_DISTRIBUTION_CAUCHY )
+      call this%cauchy%entropy(Ef, E, wk, occ, entropy)
+    case default
+      stop
     end select
 
   end subroutine cdf_distribution_entropy_3d
@@ -227,7 +426,40 @@ contains
     this%inv_kT = 1._dp / max(kT, 1.e-6_dp)
   end subroutine fermi_dirac_init
 
+  elemental function fermi_dirac_delta_elemental(this, Estate, E) result(delta)
+    class(fermi_dirac_t), intent(in) :: this
+    real(dp), intent(in) :: Estate, E
+    real(dp) :: delta
 
+    real(dp) :: x
+
+    x = (E - Estate) * this%inv_kT
+    if ( abs(x) < 100._dp ) then
+      delta = 1._dp / ( 2._dp + exp(x) + exp(-x) )
+    else
+      delta = 0._dp
+    end if
+          
+  end function fermi_dirac_delta_elemental
+
+  elemental subroutine fermi_dirac_occupation_elemental(this, Ef, E, occ)
+    class(fermi_dirac_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E
+    real(dp), intent(inout) :: occ
+
+    real(dp) :: x
+
+    x = (E - Ef) * this%inv_kT
+    if ( x > 100._dp ) then
+      occ = 0._dp
+    else if ( x < -100._dp ) then
+      occ = 1._dp
+    else
+      occ = 1._dp / ( 1._dp + exp(x) )
+    end if
+          
+  end subroutine fermi_dirac_occupation_elemental
+  
   subroutine fermi_dirac_occupation_3d(this, Ef, E, wk, occ)
     class(fermi_dirac_t), intent(in) :: this
     real(dp), intent(in) :: Ef, E(:,:,:), wk(:)
@@ -239,21 +471,36 @@ contains
     do ik = 1, size(E, 3)
       do ispin = 1, size(E, 2)
         do ie = 1, size(E, 1)
-        
-          x = (E(ie,ispin,ik) - Ef) * this%inv_kT
-          if ( x > 100._dp ) then
-            occ(ie,ispin,ik) = 0._dp
-          else if ( x < -100._dp ) then
-            occ(ie,ispin,ik) = wk(ik)
-          else
-            occ(ie,ispin,ik) = wk(ik) / ( 1._dp + exp(x) )
-          end if
+
+          call this%occupation(Ef, E(ie,ispin,ik), x)
+          occ(ie,ispin,ik) = wk(ik) * x
           
         end do
       end do
     end do
  
   end subroutine fermi_dirac_occupation_3d
+
+  subroutine fermi_dirac_occupation_diff_3d(this, Ef, E, wk, occ)
+    class(fermi_dirac_t), intent(in) :: this
+    real(dp), intent(in) :: Ef(2), E(:,:,:), wk(:)
+    real(dp), intent(inout) :: occ(:,:,:)
+
+    integer :: ie, ispin, ik
+    real(dp) :: locc(2)
+
+    do ik = 1, size(E, 3)
+      do ispin = 1, size(E, 2)
+        do ie = 1, size(E, 1)
+
+          call this%occupation(Ef, E(ie,ispin,ik), locc)
+          occ(ie,ispin,ik) = wk(ik) * (locc(2) - locc(1))
+
+        end do
+      end do
+    end do
+ 
+  end subroutine fermi_dirac_occupation_diff_3d
 
   
   subroutine fermi_dirac_occupation_derivative_3d(this, Ef, E, wk, occ, docc)
@@ -278,12 +525,13 @@ contains
           else
             fd = 1._dp / (1._dp + exp(x))
             occ(ie,ispin,ik) = wk(ik) * fd
-            docc = docc - this%inv_kT * exp(x) * fd ** 2 * wk(ik)
+            docc = docc - exp(x) * fd ** 2 * wk(ik)
           end if
           
         end do
       end do
     end do
+    docc = docc * this%inv_kT
  
   end subroutine fermi_dirac_occupation_derivative_3d
 
@@ -296,17 +544,20 @@ contains
     real(dp), parameter :: occ_tol = 1.e-15_dp
 
     integer :: ie, ispin, ik
-    real(dp) :: wo, we
+    real(dp) :: x, wo, we
 
     entropy = 0._dp
     do ik = 1, size(E, 3)
       do ispin = 1, size(E, 2)
         do ie = 1, size(E, 1)
 
-          wo = max(occ(ie,ispin,ik)/wk(ik), occ_tol)
-          we = max(1._dp - wo, occ_tol)
-          entropy = entropy - wk(ik) * (wo * log(wo) + we * log(we))
-          
+          x = (E(ie,ispin,ik) - Ef) * this%inv_kT
+          if ( abs(x) < 100._dp ) then
+            wo = max(1._dp / (1._dp + exp(x)), occ_tol)
+            we = max(1._dp - wo, occ_tol)
+            entropy = entropy - wk(ik) * (wo * log(wo) + we * log(we))
+          end if
+
         end do
       end do
     end do
@@ -319,36 +570,98 @@ contains
     class(methfessel_paxton_t), intent(inout) :: this
     real(dp), intent(in) :: kT
     integer, intent(in) :: N
+
     this%inv_kT = 1._dp / max(kT, 1.e-6_dp)
     this%N = N
+    if ( this%N < 0 .or. 20 < this%N ) then
+      stop
+    end if
+
   end subroutine methfessel_paxton_init
 
 
-  subroutine methfessel_paxton_occupation_3d(this, Ef, E, wk, occ)
+  elemental function methfessel_paxton_delta_elemental(this, Estate, E) result(delta)
     class(methfessel_paxton_t), intent(in) :: this
-    real(dp), intent(in) :: Ef, E(:,:,:), wk(:)
+    real(dp), intent(in) :: Estate, E
+    real(dp) :: delta
+
+    integer :: i
+    real(dp) :: x, hp, a, gauss
+
+    x = (E - Estate) * this%inv_kT
+    gauss = exp( - x * x)
+
+    if ( gauss > 1.e-20_dp ) then
+      a = 1._dp
+      hp = 0._dp
+      do i = 1, this%N
+        a = -a * 0.25_dp / i
+        hp = hp + a * this%hermite_polynomial_d(x, i * 2 - 1)
+      end do
+    end if
+    delta = hp * gauss * inv_sqrt_Pi
+ 
+  end function methfessel_paxton_delta_elemental
+  
+  elemental subroutine methfessel_paxton_occupation_elemental(this, Ef, E, occ)
+    class(methfessel_paxton_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E
+    real(dp), intent(inout) :: occ
+
+    integer :: i
+    real(dp) :: x, hp, a, gauss
+
+    x = (E - Ef) * this%inv_kT
+    gauss = exp( - x * x)
+    occ = derfc(x) * 0.5_dp
+
+    if ( gauss > 1.e-20_dp ) then
+      a = inv_sqrt_Pi
+      hp = 0._dp
+      do i = 1, this%N
+        a = -a * 0.25_dp / i
+        hp = hp + a * this%hermite_polynomial(x, i * 2 - 1)
+      end do
+      occ = occ + hp * gauss
+    end if
+ 
+  end subroutine methfessel_paxton_occupation_elemental
+
+  subroutine methfessel_paxton_occupation_diff_3d(this, Ef, E, wk, occ)
+    class(methfessel_paxton_t), intent(in) :: this
+    real(dp), intent(in) :: Ef(2), E(:,:,:), wk(:)
     real(dp), intent(inout) :: occ(:,:,:)
 
-    integer :: ie, ispin, ik, i
-    real(dp) :: x, hp, a, gauss
+    integer :: ie, ispin, ik
+    real(dp) :: locc(2)
 
     do ik = 1, size(E, 3)
       do ispin = 1, size(E, 2)
         do ie = 1, size(E, 1)
 
-          x = (E(ie,ispin,ik) - Ef) * this%inv_kT
-          gauss = exp( - x * x)
-          occ(ie,ispin,ik) = derfc(x) * 0.5_dp * wk(ik)
+          call this%occupation(Ef, E(ie,ispin,ik), locc)
+          occ(ie,ispin,ik) = wk(ik) * (locc(2) - locc(1))
 
-          if ( gauss > 1.e-20_dp ) then
-            a = inv_sqrt_Pi * wk(ik)
-            hp = 0._dp
-            do i = 1, this%N
-              a = -a * 0.25_dp / i
-              hp = hp + a * this%hermite_polynomial(x, i * 2 - 1)
-            end do
-            occ(ie,ispin,ik) = occ(ie,ispin,ik) + hp * gauss
-          end if
+        end do
+      end do
+    end do
+ 
+  end subroutine methfessel_paxton_occupation_diff_3d
+  
+  subroutine methfessel_paxton_occupation_3d(this, Ef, E, wk, occ)
+    class(methfessel_paxton_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E(:,:,:), wk(:)
+    real(dp), intent(inout) :: occ(:,:,:)
+
+    integer :: ie, ispin, ik
+    real(dp) :: x
+
+    do ik = 1, size(E, 3)
+      do ispin = 1, size(E, 2)
+        do ie = 1, size(E, 1)
+
+          call this%occupation(Ef, E(ie,ispin,ik), x)
+          occ(ie,ispin,ik) = wk(ik) * x
           
         end do
       end do
@@ -374,11 +687,11 @@ contains
           x = (E(ie,ispin,ik) - Ef) * this%inv_kT
           gauss = exp( - x * x)
           occ(ie,ispin,ik) = derfc(x) * 0.5_dp * wk(ik)
-          docc = docc - inv_sqrt_Pi * gauss * wk(ik)
+          docc = docc - gauss * wk(ik)
 
           if ( gauss > 1.e-20_dp ) then
             
-            a = inv_sqrt_Pi * wk(ik)
+            a = wk(ik)
             do i = 1, this%N
               a = -a * 0.25_dp / i
               hp = this%hermite_polynomial(x, i*2-1)
@@ -392,7 +705,7 @@ contains
         end do
       end do
     end do
-    docc = docc * this%inv_kT
+    docc = docc * this%inv_kT * inv_sqrt_Pi
  
   end subroutine methfessel_paxton_occupation_derivative_3d
 
@@ -423,6 +736,8 @@ contains
 
     real(dp) :: hp
 
+    ! Even for N = 0 this works, since hp(x, n-1) == 1
+    ! and then multiplied by N yields 0.
     hp = 2 * N * this%hermite_polynomial(x, N-1)
     
   end function methfessel_paxton_hermite_polynomial_d
@@ -465,6 +780,51 @@ contains
     this%inv_kT = 1._dp / max(kT, 1.e-6_dp)
   end subroutine cold_init
 
+  elemental function cold_delta_elemental(this, Estate, E) result(delta)
+    class(cold_t), intent(in) :: this
+    real(dp), intent(in) :: Estate, E
+    real(dp) :: delta
+
+    real(dp) :: x
+
+    x = - (E - Estate) * this%inv_kT - inv_sqrt_2
+    delta = inv_sqrt_Pi * exp( - x ** 2 ) * (2._dp - inv_sqrt_2 * x)
+          
+  end function cold_delta_elemental
+  
+  elemental subroutine cold_occupation_elemental(this, Ef, E, occ)
+    class(cold_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E
+    real(dp), intent(inout) :: occ
+
+    real(dp) :: x
+
+    x = - (E - Ef) * this%inv_kT - inv_sqrt_2
+    occ = 0.5_dp + 0.5_dp * derf(x) + inv_sqrt_2_Pi * exp( - min(300._dp, x ** 2) )
+          
+  end subroutine cold_occupation_elemental
+
+  subroutine cold_occupation_diff_3d(this, Ef, E, wk, occ)
+    class(cold_t), intent(in) :: this
+    real(dp), intent(in) :: Ef(2), E(:,:,:), wk(:)
+    real(dp), intent(inout) :: occ(:,:,:)
+
+    integer :: ie, ispin, ik
+    real(dp) :: locc(2)
+
+    do ik = 1, size(E, 3)
+      do ispin = 1, size(E, 2)
+        do ie = 1, size(E, 1)
+
+          call this%occupation(Ef, E(ie,ispin,ik), locc)
+          occ(ie,ispin,ik) = wk(ik) * (locc(2) - locc(1))
+
+        end do
+      end do
+    end do
+ 
+  end subroutine cold_occupation_diff_3d
+  
   subroutine cold_occupation_3d(this, Ef, E, wk, occ)
     class(cold_t), intent(in) :: this
     real(dp), intent(in) :: Ef, E(:,:,:), wk(:)
@@ -476,10 +836,9 @@ contains
     do ik = 1, size(E, 3)
       do ispin = 1, size(E, 2)
         do ie = 1, size(E, 1)
-        
-          x = - (E(ie,ispin,ik) - Ef) * this%inv_kT - inv_sqrt_2
-          occ(ie,ispin,ik) = wk(ik) * &
-              (0.5_dp + 0.5_dp * derf(x) + inv_sqrt_2_Pi * exp( - min(300._dp, x ** 2) ))
+
+          call this%occupation(Ef, E(ie,ispin,ik), x)
+          occ(ie,ispin,ik) = wk(ik) * x
           
         end do
       end do
@@ -545,6 +904,51 @@ contains
     this%inv_kT = 1._dp / max(kT, 1.e-6_dp)
   end subroutine gaussian_init
 
+  elemental function gaussian_delta_elemental(this, Estate, E) result(delta)
+    class(gaussian_t), intent(in) :: this
+    real(dp), intent(in) :: Estate, E
+    real(dp) :: delta
+
+    real(dp) :: x
+
+    x = (E - Estate) * this%inv_kT * inv_sqrt_2
+    delta = this%inv_kT * inv_sqrt_2_Pi * exp( - x**2 )
+ 
+  end function gaussian_delta_elemental
+  
+  elemental subroutine gaussian_occupation_elemental(this, Ef, E, occ)
+    class(gaussian_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E
+    real(dp), intent(inout) :: occ
+
+    real(dp) :: x
+
+    x = (E - Ef) * this%inv_kT * inv_sqrt_2
+    occ = 0.5_dp - 0.5_dp * derf(x)
+ 
+  end subroutine gaussian_occupation_elemental
+
+  subroutine gaussian_occupation_diff_3d(this, Ef, E, wk, occ)
+    class(gaussian_t), intent(in) :: this
+    real(dp), intent(in) :: Ef(2), E(:,:,:), wk(:)
+    real(dp), intent(inout) :: occ(:,:,:)
+
+    integer :: ie, ispin, ik
+    real(dp) :: locc(2)
+
+    do ik = 1, size(E, 3)
+      do ispin = 1, size(E, 2)
+        do ie = 1, size(E, 1)
+
+          call this%occupation(Ef, E(ie,ispin,ik), locc)
+          occ(ie,ispin,ik) = wk(ik) * (locc(2) - locc(1))
+
+        end do
+      end do
+    end do
+ 
+  end subroutine gaussian_occupation_diff_3d
+  
   subroutine gaussian_occupation_3d(this, Ef, E, wk, occ)
     class(gaussian_t), intent(in) :: this
     real(dp), intent(in) :: Ef, E(:,:,:), wk(:)
@@ -556,9 +960,9 @@ contains
     do ik = 1, size(E, 3)
       do ispin = 1, size(E, 2)
         do ie = 1, size(E, 1)
-        
-          x = (E(ie,ispin,ik) - Ef) * this%inv_kT * inv_sqrt_2
-          occ(ie,ispin,ik) = wk(ik) * (0.5_dp - 0.5_dp * derf(x))
+
+          call this%occupation(Ef, E(ie,ispin,ik), x)
+          occ(ie,ispin,ik) = wk(ik) * x
           
         end do
       end do
@@ -615,5 +1019,128 @@ contains
     entropy = entropy * inv_sqrt_2_Pi
  
   end subroutine gaussian_entropy_3d
+
+
+
+  subroutine cauchy_init(this, kT)
+    class(cauchy_t), intent(inout) :: this
+    real(dp), intent(in) :: kT
+    this%inv_kT = 1._dp / max(kT, 1.e-6_dp)
+  end subroutine cauchy_init
+
+
+  elemental function cauchy_delta_elemental(this, Estate, E) result(delta)
+    class(cauchy_t), intent(in) :: this
+    real(dp), intent(in) :: Estate, E
+    real(dp) :: delta
+
+    real(dp) :: x
+
+    x = (E - Estate) * this%inv_kT
+    delta = this%inv_kT / (Pi * (1._dp + x ** 2) )
+ 
+  end function cauchy_delta_elemental
+
+  elemental subroutine cauchy_occupation_elemental(this, Ef, E, occ)
+    class(cauchy_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E
+    real(dp), intent(inout) :: occ
+
+    real(dp) :: x
+
+    x = (E - Ef) * this%inv_kT
+    occ = 0.5_dp - 0.5_dp * inv_sqrt_Pi * atan(x)
+ 
+  end subroutine cauchy_occupation_elemental
+
+  subroutine cauchy_occupation_diff_3d(this, Ef, E, wk, occ)
+    class(cauchy_t), intent(in) :: this
+    real(dp), intent(in) :: Ef(2), E(:,:,:), wk(:)
+    real(dp), intent(inout) :: occ(:,:,:)
+
+    integer :: ie, ispin, ik
+    real(dp) :: locc(2)
+
+    do ik = 1, size(E, 3)
+      do ispin = 1, size(E, 2)
+        do ie = 1, size(E, 1)
+
+          call this%occupation(Ef, E(ie,ispin,ik), locc)
+          occ(ie,ispin,ik) = wk(ik) * (locc(2) - locc(1))
+
+        end do
+      end do
+    end do
+ 
+  end subroutine cauchy_occupation_diff_3d
+  
+  subroutine cauchy_occupation_3d(this, Ef, E, wk, occ)
+    class(cauchy_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E(:,:,:), wk(:)
+    real(dp), intent(inout) :: occ(:,:,:)
+
+    integer :: ie, ispin, ik
+    real(dp) :: x
+
+    do ik = 1, size(E, 3)
+      do ispin = 1, size(E, 2)
+        do ie = 1, size(E, 1)
+
+          call this%occupation(Ef, E(ie,ispin,ik), x)
+          occ(ie,ispin,ik) = wk(ik) * x
+          
+        end do
+      end do
+    end do
+ 
+  end subroutine cauchy_occupation_3d
+
+  
+  subroutine cauchy_occupation_derivative_3d(this, Ef, E, wk, occ, docc)
+    class(cauchy_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E(:,:,:), wk(:)
+    real(dp), intent(inout) :: occ(:,:,:)
+    real(dp), intent(out) :: docc
+
+    integer :: ie, ispin, ik
+    real(dp) :: x
+
+    docc = 0._dp
+    do ik = 1, size(E, 3)
+      do ispin = 1, size(E, 2)
+        do ie = 1, size(E, 1)
+        
+          x = (E(ie,ispin,ik) - Ef) * this%inv_kT
+          occ(ie,ispin,ik) = wk(ik) * (0.5_dp - 0.5_dp * inv_sqrt_Pi * atan(x))
+          docc = docc - wk(ik) / (1._dp + x ** 2)
+          
+        end do
+      end do
+    end do
+    docc = docc * this%inv_kT / Pi
+ 
+  end subroutine cauchy_occupation_derivative_3d
+
+  subroutine cauchy_entropy_3d(this, Ef, E, wk, occ, entropy)
+    class(cauchy_t), intent(in) :: this
+    real(dp), intent(in) :: Ef, E(:,:,:), wk(:), occ(:,:,:)
+    real(dp), intent(out) :: entropy
+
+    integer :: ie, ispin, ik
+    real(dp) :: x
+
+    entropy = 0._dp
+    do ik = 1, size(E, 3)
+      do ispin = 1, size(E, 2)
+        do ie = 1, size(E, 1)
+
+          ! TODO: This is not completed
+          x = (E(ie,ispin,ik) - Ef) * this%inv_kT
+          
+        end do
+      end do
+    end do
+ 
+  end subroutine cauchy_entropy_3d
   
 end module cdf_distribution_m

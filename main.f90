@@ -10,7 +10,7 @@ program main
 
 
   integer :: Neig, nk
-  integer :: N
+  integer :: N, itt
   real(dp) :: t0, t1, dq, entropy
   real(dp) :: Ef, emin, emax, temp, qtot
 
@@ -23,17 +23,17 @@ program main
   call fill_data()
 
   call cpu_time(t0)
-  call run_fermi_dirac_orig()
+  call run_fd_orig()
   call cpu_time(t1)
   call final_print()
 
   call cpu_time(t0)
-  call run_fermi_dirac_direct()
+  call run_fd_direct()
   call cpu_time(t1)
   call final_print()
 
   call cpu_time(t0)
-  call run_fermi_dirac_deriv()
+  call run_fd_deriv()
   call cpu_time(t1)
   call final_print()
 
@@ -84,6 +84,19 @@ program main
   call cpu_time(t1)
   call final_print()
 
+
+  print *, ''
+
+  call cpu_time(t0)
+  call run_c_direct()
+  call cpu_time(t1)
+  call final_print()
+
+  call cpu_time(t0)
+  call run_c_deriv()
+  call cpu_time(t1)
+  call final_print()
+
 contains
 
   subroutine final_print()
@@ -116,7 +129,7 @@ contains
 
   end subroutine init_guesses
 
-  subroutine run_fermi_dirac_orig()
+  subroutine run_fd_orig()
 
     use m_fermid
 
@@ -127,77 +140,28 @@ contains
     dq = qtot - sum(occ3d)
     write(*,'(a,t20,i3,a)') 'FD[orig] in ',itt, ' steps'
 
-  end subroutine run_fermi_dirac_orig
+  end subroutine run_fd_orig
 
-  subroutine run_fermi_dirac_direct()
 
+  subroutine run_fd_direct()
     type(cdf_distribution_t) :: dist
-    integer :: itt
-    real(dp) :: sumq
 
+    dist%method = CDF_DISTRIBUTION_FERMI_DIRAC
     call dist%fd%init(temp)
-
-    call init_guesses()
-
-    ef = (emin + emax) * 0.5_dp
-    itt = 0
-    do
-      itt = itt + 1
-
-      call dist%fd%occupation(ef, eig3d, wk, occ3d)
-      sumq = sum(occ3d)
-
-      if ( check_Ef(sumq, qtot) ) exit
-      if ( sumq <= qtot ) emin = ef
-      if ( sumq >= qtot ) emax = ef
-      ef = (emin + emax) * 0.5_dp
-
-    end do
-    call dist%fd%entropy(ef, eig3d, wk, occ3d, entropy)
-
+    call run_direct(dist)
     write(*,'(a,t20,i3,a)') 'FD[direct] in ',itt, ' steps'
+    
+  end subroutine run_fd_direct
 
-  end subroutine run_fermi_dirac_direct
-
-
-  subroutine run_fermi_dirac_deriv()
+  subroutine run_fd_deriv()
     type(cdf_distribution_t) :: dist
 
-    integer :: itt
-    real(dp) :: sumq, dsumq, dEf
-
+    dist%method = CDF_DISTRIBUTION_FERMI_DIRAC
     call dist%fd%init(temp)
-
-    call init_guesses()
-
-    itt = 0
-    ef = (emin + emax) * 0.5_dp
-    do
-      itt = itt + 1
-
-      call dist%fd%occupation(ef, eig3d, wk, occ3d, dsumq)
-
-      sumq = sum(occ3d)
-      !print *, Ef, sumq, dsumq, dEf
-      
-      if ( check_Ef(sumq, qtot) ) exit
-      if ( sumq <= qtot ) emin = ef
-      if ( sumq >= qtot ) emax = ef
-
-      dEf = (sumq - qtot) / dsumq
-      Ef = Ef + dEf
-      if ( Ef < emin .or. emax < Ef ) then
-        ef = (emin + emax) * 0.5_dp
-      else
-        !print *, 'used dEf'
-      end if
-      
-    end do
-    call dist%fd%entropy(ef, eig3d, wk, occ3d, entropy)
-    
+    call run_deriv(dist)
     write(*,'(a,t20,i3,a)') 'FD[deriv] in ',itt, ' steps'
-
-  end subroutine run_fermi_dirac_deriv
+    
+  end subroutine run_fd_deriv
 
 
   subroutine run_cold_orig()
@@ -212,78 +176,28 @@ contains
     write(*,'(a,t20,i3,a)') 'COLD[orig] in ',itt, ' steps'
 
   end subroutine run_cold_orig
-  
+
   subroutine run_cold_direct()
-
     type(cdf_distribution_t) :: dist
-    integer :: itt
-    real(dp) :: sumq
 
+    dist%method = CDF_DISTRIBUTION_COLD
     call dist%cold%init(temp)
-
-    call init_guesses()
-
-    ef = (emin + emax) * 0.5_dp
-    itt = 0
-    do
-      itt = itt + 1
-
-      call dist%cold%occupation(ef, eig3d, wk, occ3d)
-      sumq = sum(occ3d)
-
-      if ( check_Ef(sumq, qtot) ) exit
-      if ( sumq <= qtot ) emin = ef
-      if ( sumq >= qtot ) emax = ef
-
-      ef = (emin + emax) * 0.5_dp
-
-    end do
-    call dist%cold%entropy(ef, eig3d, wk, occ3d, entropy)
-
+    call run_direct(dist)
     write(*,'(a,t20,i3,a)') 'COLD[direct] in ',itt, ' steps'
-
+    
   end subroutine run_cold_direct
-
 
   subroutine run_cold_deriv()
     type(cdf_distribution_t) :: dist
 
-    integer :: itt
-    real(dp) :: sumq, dsumq, def
-
+    dist%method = CDF_DISTRIBUTION_COLD
     call dist%cold%init(temp)
-
-    call init_guesses()
-
-    itt = 0
-    ef = (emin + emax) * 0.5_dp
-    do
-      itt = itt + 1
-
-      call dist%cold%occupation(ef, eig3d, wk, occ3d, dsumq)
-
-      sumq = sum(occ3d)
-      
-      if ( check_Ef(sumq, qtot) ) exit
-      if ( sumq <= qtot ) emin = ef
-      if ( sumq >= qtot ) emax = ef
-
-      dEf = (sumq - qtot) / dsumq
-
-      Ef = Ef + dEf
-      if ( Ef < emin .or. emax < Ef ) then
-        ef = (emin + emax) * 0.5_dp
-      else
-        !print *, 'used dEf'
-      end if
-      
-    end do
-    call dist%cold%entropy(ef, eig3d, wk, occ3d, entropy)
-    
+    call run_deriv(dist)
     write(*,'(a,t20,i3,a)') 'COLD[deriv] in ',itt, ' steps'
-
+    
   end subroutine run_cold_deriv
 
+  
   subroutine run_mp_orig()
     use m_fermid
 
@@ -300,84 +214,70 @@ contains
   subroutine run_mp_direct()
     type(cdf_distribution_t) :: dist
 
-    integer :: itt
-    real(dp) :: sumq
-
+    dist%method = CDF_DISTRIBUTION_METHFESSEL_PAXTON
     call dist%mp%init(temp, 4)
-
-    call init_guesses()
-
-    ef = (emin + emax) * 0.5_dp
-    itt = 0
-    do
-      itt = itt + 1
-
-      call dist%mp%occupation(ef, eig3d, wk, occ3d)
-      sumq = sum(occ3d)
-
-!      print *, ef, sumq
-      if ( check_Ef(sumq, qtot) ) exit
-      if ( sumq <= qtot ) emin = ef
-      if ( sumq >= qtot ) emax = ef
-
-      ef = (emin + emax) * 0.5_dp
-
-    end do
-    call dist%mp%entropy(ef, eig3d, wk, occ3d, entropy)
-
+    call run_direct(dist)
     write(*,'(a,t20,i3,a)') 'MP[direct] in ',itt, ' steps'
-
+    
   end subroutine run_mp_direct
 
   subroutine run_mp_deriv()
     type(cdf_distribution_t) :: dist
 
-    integer :: itt
-    real(dp) :: sumq, dsumq, def
-
+    dist%method = CDF_DISTRIBUTION_METHFESSEL_PAXTON
     call dist%mp%init(temp, 4)
-
-    call init_guesses()
-
-    dsumq = (abs(emin) + abs(emax)) * 2._dp
-
-    itt = 0
-    ef = (emin + emax) * 0.5_dp
-    do
-      itt = itt + 1
-
-      call dist%mp%occupation(ef, eig3d, wk, occ3d, dsumq)
-
-      sumq = sum(occ3d)
-      !print *, Ef, sumq, dsumq, dEf
-
-      if ( check_Ef(sumq, qtot) ) exit
-      if ( sumq <= qtot ) emin = ef
-      if ( sumq >= qtot ) emax = ef
-
-      dEf = (sumq - qtot) / dsumq
-
-      Ef = Ef + dEf
-      if ( Ef < emin .or. emax < Ef ) then
-        Ef = (emin + emax) * 0.5_dp
-      else
-        !print *, 'used dEf'
-      end if
-      
-    end do
-    call dist%mp%entropy(ef, eig3d, wk, occ3d, entropy)
-
+    call run_deriv(dist)
     write(*,'(a,t20,i3,a)') 'MP[deriv] in ',itt, ' steps'
-
+    
   end subroutine run_mp_deriv
+
 
   subroutine run_g_direct()
     type(cdf_distribution_t) :: dist
-
-    integer :: itt
-    real(dp) :: sumq
-
+    
+    dist%method = CDF_DISTRIBUTION_GAUSSIAN
     call dist%gauss%init(temp)
+    call run_direct(dist)
+    write(*,'(a,t20,i3,a)') 'GAUSS[direct] in ',itt, ' steps'
+    
+  end subroutine run_g_direct
+
+  subroutine run_g_deriv()
+    type(cdf_distribution_t) :: dist
+    
+    dist%method = CDF_DISTRIBUTION_GAUSSIAN
+    call dist%gauss%init(temp)
+    call run_deriv(dist)
+    write(*,'(a,t20,i3,a)') 'GAUSS[deriv] in ',itt, ' steps'
+    
+  end subroutine run_g_deriv
+  
+  
+  subroutine run_c_direct()
+    type(cdf_distribution_t) :: dist
+
+    dist%method = CDF_DISTRIBUTION_CAUCHY
+    call dist%cauchy%init(temp)
+    call run_direct(dist)
+    write(*,'(a,t20,i3,a)') 'CAUCHY[direct] in ',itt, ' steps'
+
+  end subroutine run_c_direct
+
+  subroutine run_c_deriv()
+    type(cdf_distribution_t) :: dist
+
+    dist%method = CDF_DISTRIBUTION_CAUCHY
+    call dist%cauchy%init(temp)
+    call run_deriv(dist)
+    write(*,'(a,t20,i3,a)') 'CAUCHY[deriv] in ',itt, ' steps'
+
+  end subroutine run_c_deriv
+
+
+  subroutine run_direct(dist)
+    type(cdf_distribution_t), intent(inout) :: dist
+
+    real(dp) :: sumq
 
     call init_guesses()
 
@@ -386,7 +286,7 @@ contains
     do
       itt = itt + 1
 
-      call dist%gauss%occupation(ef, eig3d, wk, occ3d)
+      call dist%occupation(ef, eig3d, wk, occ3d)
       sumq = sum(occ3d)
 
 !      print *, ef, sumq
@@ -397,54 +297,43 @@ contains
       ef = (emin + emax) * 0.5_dp
 
     end do
-    call dist%gauss%entropy(ef, eig3d, wk, occ3d, entropy)
+    call dist%entropy(ef, eig3d, wk, occ3d, entropy)
 
-    write(*,'(a,t20,i3,a)') 'GA[direct] in ',itt, ' steps'
+  end subroutine run_direct
 
-  end subroutine run_g_direct
+  subroutine run_deriv(dist)
+    type(cdf_distribution_t), intent(inout) :: dist
 
-  subroutine run_g_deriv()
-    type(cdf_distribution_t) :: dist
-
-    integer :: itt
-    real(dp) :: sumq, dsumq, def
-
-    call dist%gauss%init(temp)
+    real(dp) :: sumq, dsumq, dEf
 
     call init_guesses()
-
-    dsumq = (abs(emin) + abs(emax)) * 2._dp
 
     itt = 0
     ef = (emin + emax) * 0.5_dp
     do
       itt = itt + 1
 
-      call dist%gauss%occupation(ef, eig3d, wk, occ3d, dsumq)
+      call dist%occupation(ef, eig3d, wk, occ3d, dsumq)
 
       sumq = sum(occ3d)
-      !print *, Ef, sumq, dsumq, dEf
-
+      print *, Ef, sumq, dsumq, dEf
+      
       if ( check_Ef(sumq, qtot) ) exit
       if ( sumq <= qtot ) emin = ef
       if ( sumq >= qtot ) emax = ef
 
       dEf = (sumq - qtot) / dsumq
-
       Ef = Ef + dEf
       if ( Ef < emin .or. emax < Ef ) then
-        Ef = (emin + emax) * 0.5_dp
+        ef = (emin + emax) * 0.5_dp
       else
         !print *, 'used dEf'
       end if
       
     end do
-    call dist%gauss%entropy(ef, eig3d, wk, occ3d, entropy)
-
-    write(*,'(a,t20,i3,a)') 'GA[deriv] in ',itt, ' steps'
-
-  end subroutine run_g_deriv
-
+    call dist%entropy(ef, eig3d, wk, occ3d, entropy)
+    
+  end subroutine run_deriv
 
   subroutine fill_data()
     call random_seed(put=[1249, 132, 145, 41, 214, 53, 534, 4])
