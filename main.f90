@@ -19,7 +19,7 @@ program main
   temp = 0.1_dp
 
   Neig = 10000
-  nk = 1000
+  nk = 100
   call fill_data()
 
   call cpu_time(t0)

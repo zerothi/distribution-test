@@ -529,7 +529,7 @@ contains
         do ie = 1, size(E, 1)
         
           x = - (E(ie,ispin,ik) - Ef) * this%inv_kT - inv_sqrt_2
-          entropy = entropy + wk(ik) * x * exp( - min(300._dp, x ** 2) )
+          entropy = entropy - wk(ik) * x * exp( - min(300._dp, x ** 2) )
           
         end do
       end do
