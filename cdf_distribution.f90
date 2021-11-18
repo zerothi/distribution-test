@@ -1010,8 +1010,8 @@ contains
       do ispin = 1, size(E, 2)
         do ie = 1, size(E, 1)
         
-          x = - (E(ie,ispin,ik) - Ef) * this%inv_kT - inv_sqrt_2
-          entropy = entropy + wk(ik) * x * exp( - min(300._dp, x ** 2) )
+          x = (E(ie,ispin,ik) - Ef) * this%inv_kT
+          entropy = entropy + wk(ik) * exp( - min(300._dp, x ** 2) )
           
         end do
       end do
