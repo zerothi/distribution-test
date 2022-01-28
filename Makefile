@@ -1,8 +1,8 @@
 FC = gfortran
 FCFLAGS = -O2
 
-OBJS = precision.o errorf.o units.o fermid.o sys.o
-OBJS += distribution.o cdf_distribution.o main.o
+OBJS = precision.o errorf.o units.o fermid.o sys.o die.o
+OBJS += distribution_functions.o main.o
 
 .SUFFIXES:
 .SUFFIXES: .f .F .c .o .a .f90 .F90
@@ -16,8 +16,8 @@ run: main
 units.o: precision.o
 errorf.o: precision.o units.o
 fermid.o: precision.o units.o errorf.o sys.o
-distribution.o: precision.o units.o
-main.o: distribution.o cdf_distribution.o
+distribution_functions.o: precision.o units.o
+main.o: distribution_functions.o die.o
 
 clean:
 	-rm -f $(OBJS) *.mod

@@ -1,6 +1,6 @@
 program main
   use precision, only: dp
-  use cdf_distribution_m
+  use distribution_functions_m
 
   implicit none
 
@@ -20,6 +20,9 @@ program main
 
   Neig = 10000
   nk = 100
+
+  call check_pdf()
+  
   call fill_data()
 
   call cpu_time(t0)
@@ -39,22 +42,24 @@ program main
 
   print *, ''
   
-  call cpu_time(t0)
-  call run_mp_orig()
-  call cpu_time(t1)
-  call final_print()
+  do N = 0, 5
+    call cpu_time(t0)
+    call run_mp_orig(N)
+    call cpu_time(t1)
+    call final_print()
 
-  call cpu_time(t0)
-  call run_mp_direct()
-  call cpu_time(t1)
-  call final_print()
+    call cpu_time(t0)
+    call run_mp_direct(N)
+    call cpu_time(t1)
+    call final_print()
 
-  call cpu_time(t0)
-  call run_mp_deriv()
-  call cpu_time(t1)
-  call final_print()
+    call cpu_time(t0)
+    call run_mp_deriv(N)
+    call cpu_time(t1)
+    call final_print()
+    print *, ''
+  end do
 
-  print *, ''
 
   call cpu_time(t0)
   call run_cold_orig()
@@ -144,9 +149,9 @@ contains
 
 
   subroutine run_fd_direct()
-    type(cdf_distribution_t) :: dist
+    type(distribution_t) :: dist
 
-    dist%method = CDF_DISTRIBUTION_FERMI_DIRAC
+    dist%method = DISTRIBUTION_FERMI_DIRAC
     call dist%fd%init(temp)
     call run_direct(dist)
     write(*,'(a,t20,i3,a)') 'FD[direct] in ',itt, ' steps'
@@ -154,9 +159,9 @@ contains
   end subroutine run_fd_direct
 
   subroutine run_fd_deriv()
-    type(cdf_distribution_t) :: dist
+    type(distribution_t) :: dist
 
-    dist%method = CDF_DISTRIBUTION_FERMI_DIRAC
+    dist%method = DISTRIBUTION_FERMI_DIRAC
     call dist%fd%init(temp)
     call run_deriv(dist)
     write(*,'(a,t20,i3,a)') 'FD[deriv] in ',itt, ' steps'
@@ -178,9 +183,9 @@ contains
   end subroutine run_cold_orig
 
   subroutine run_cold_direct()
-    type(cdf_distribution_t) :: dist
+    type(distribution_t) :: dist
 
-    dist%method = CDF_DISTRIBUTION_COLD
+    dist%method = DISTRIBUTION_COLD
     call dist%cold%init(temp)
     call run_direct(dist)
     write(*,'(a,t20,i3,a)') 'COLD[direct] in ',itt, ' steps'
@@ -188,9 +193,9 @@ contains
   end subroutine run_cold_direct
 
   subroutine run_cold_deriv()
-    type(cdf_distribution_t) :: dist
+    type(distribution_t) :: dist
 
-    dist%method = CDF_DISTRIBUTION_COLD
+    dist%method = DISTRIBUTION_COLD
     call dist%cold%init(temp)
     call run_deriv(dist)
     write(*,'(a,t20,i3,a)') 'COLD[deriv] in ',itt, ' steps'
@@ -198,44 +203,49 @@ contains
   end subroutine run_cold_deriv
 
   
-  subroutine run_mp_orig()
+  subroutine run_mp_orig(N)
     use m_fermid
+    integer, intent(in) :: N
 
     call init_guesses()
 
-    nh = 4
+    nh = N
     ocupfnct = 2
     call fermid(2,1,nk,wk,neig,neig,eig3d,temp,qtot,occ3d,Ef,entropy)
     dq = qtot - sum(occ3d)
-    write(*,'(a,t20,i3,a)') 'MP[orig] in ',itt, ' steps'
+    write(*,'(a,i0,a,t20,i3,a)') 'MP[',N,'][orig] in ',itt, ' steps'
 
   end subroutine run_mp_orig
   
-  subroutine run_mp_direct()
-    type(cdf_distribution_t) :: dist
+  subroutine run_mp_direct(N)
+    integer, intent(in) :: N
+    type(distribution_t) :: dist
+    
 
-    dist%method = CDF_DISTRIBUTION_METHFESSEL_PAXTON
-    call dist%mp%init(temp, 4)
+    dist%method = DISTRIBUTION_METHFESSEL_PAXTON
+    call dist%mp%init(temp, N)
     call run_direct(dist)
-    write(*,'(a,t20,i3,a)') 'MP[direct] in ',itt, ' steps'
+    write(*,'(a,i0,a,t20,i3,a)') 'MP[',N,'][direct] in ',itt, ' steps'
     
   end subroutine run_mp_direct
 
-  subroutine run_mp_deriv()
-    type(cdf_distribution_t) :: dist
+  subroutine run_mp_deriv(N)
+    integer, intent(in) :: N
+    
+    type(distribution_t) :: dist
 
-    dist%method = CDF_DISTRIBUTION_METHFESSEL_PAXTON
-    call dist%mp%init(temp, 4)
+    dist%method = DISTRIBUTION_METHFESSEL_PAXTON
+    call dist%mp%init(temp, N)
     call run_deriv(dist)
-    write(*,'(a,t20,i3,a)') 'MP[deriv] in ',itt, ' steps'
+    write(*,'(a,i0,a,t20,i3,a)') 'MP[',N,'][deriv] in ',itt, ' steps'
     
   end subroutine run_mp_deriv
 
 
   subroutine run_g_direct()
-    type(cdf_distribution_t) :: dist
+    type(distribution_t) :: dist
     
-    dist%method = CDF_DISTRIBUTION_GAUSSIAN
+    dist%method = DISTRIBUTION_GAUSSIAN
     call dist%gauss%init(temp)
     call run_direct(dist)
     write(*,'(a,t20,i3,a)') 'GAUSS[direct] in ',itt, ' steps'
@@ -243,9 +253,9 @@ contains
   end subroutine run_g_direct
 
   subroutine run_g_deriv()
-    type(cdf_distribution_t) :: dist
+    type(distribution_t) :: dist
     
-    dist%method = CDF_DISTRIBUTION_GAUSSIAN
+    dist%method = DISTRIBUTION_GAUSSIAN
     call dist%gauss%init(temp)
     call run_deriv(dist)
     write(*,'(a,t20,i3,a)') 'GAUSS[deriv] in ',itt, ' steps'
@@ -254,9 +264,9 @@ contains
   
   
   subroutine run_c_direct()
-    type(cdf_distribution_t) :: dist
+    type(distribution_t) :: dist
 
-    dist%method = CDF_DISTRIBUTION_CAUCHY
+    dist%method = DISTRIBUTION_CAUCHY
     call dist%cauchy%init(temp)
     call run_direct(dist)
     write(*,'(a,t20,i3,a)') 'CAUCHY[direct] in ',itt, ' steps'
@@ -264,9 +274,9 @@ contains
   end subroutine run_c_direct
 
   subroutine run_c_deriv()
-    type(cdf_distribution_t) :: dist
+    type(distribution_t) :: dist
 
-    dist%method = CDF_DISTRIBUTION_CAUCHY
+    dist%method = DISTRIBUTION_CAUCHY
     call dist%cauchy%init(temp)
     call run_deriv(dist)
     write(*,'(a,t20,i3,a)') 'CAUCHY[deriv] in ',itt, ' steps'
@@ -275,7 +285,7 @@ contains
 
 
   subroutine run_direct(dist)
-    type(cdf_distribution_t), intent(inout) :: dist
+    type(distribution_t), intent(inout) :: dist
 
     real(dp) :: sumq
 
@@ -286,7 +296,7 @@ contains
     do
       itt = itt + 1
 
-      call dist%occupation(ef, eig3d, wk, occ3d)
+      call dist%ccdf(ef, eig3d, wk, occ3d)
       sumq = sum(occ3d)
 
       if ( check_Ef(sumq, qtot) ) exit
@@ -302,7 +312,7 @@ contains
   end subroutine run_direct
 
   subroutine run_deriv(dist)
-    type(cdf_distribution_t), intent(inout) :: dist
+    type(distribution_t), intent(inout) :: dist
 
     real(dp) :: sumq, dsumq, dEf
 
@@ -313,7 +323,7 @@ contains
     do
       itt = itt + 1
 
-      call dist%occupation(ef, eig3d, wk, occ3d, dsumq)
+      call dist%ccdf(ef, eig3d, wk, occ3d, dsumq)
 
       sumq = sum(occ3d)
       
@@ -342,7 +352,58 @@ contains
     allocate(wk(nk))
     wk(:) = 1._dp/nk
     call random_number(eig3d)
+    eig3d(:,:,:) = eig3d + 3.2_dp
     
   end subroutine fill_data
+
+
+  subroutine check_pdf()
+    type(distribution_t) :: dist
+
+    integer :: i, N
+    real(dp) :: dE, E_bound, E_min
+    real(dp) :: total
+    character(len=*), parameter :: fmt = '(a,e20.12)'
+    character(len=12) :: ctmp
+
+    if ( allocated(eig3d) ) deallocate(eig3d, occ3d)
+
+    N = 3000
+
+    allocate(eig3d(N, 1, 1), occ3d(N, 1, 1))
+
+    ! initialize all of them
+    call dist%fd%init(temp)
+    call dist%mp%init(temp, 1)
+    call dist%cold%init(temp)
+    call dist%gauss%init(temp)
+    call dist%cauchy%init(temp)
+
+    ! range of 30 kT around middle point
+    E_bound = temp * 30
+    dE = E_bound * 2 / N
+    E_min = -E_bound + dE * 0.5_dp
+    do i = 1, N
+      eig3d(i, 1, 1) = E_min + (i-1) * dE
+    end do
+
+    write(*,*)
+    occ3d = dist%fd%pdf(0._dp, eig3d)
+    write(*,fmt) 'FD      1 - \int pdf = ',1-sum(occ3d) * dE
+    do i = 0, 5
+      call dist%mp%init(temp, i)
+      occ3d = dist%mp%pdf(0._dp, eig3d)
+      write(ctmp, '(a,i0,a)') 'MP[',i,']'
+      write(*,fmt) trim(ctmp)//'   1 - \int pdf = ', 1-sum(occ3d) * dE
+    end do
+    occ3d = dist%gauss%pdf(0._dp, eig3d)
+    write(*,fmt) 'GAUSS   1 - \int pdf = ', 1-sum(occ3d) * dE
+    occ3d = dist%cold%pdf(0._dp, eig3d)
+    write(*,fmt) 'COLD    1 - \int pdf = ', 1-sum(occ3d) * dE
+    occ3d = dist%cauchy%pdf(0._dp, eig3d)
+    write(*,fmt) 'CAUCHY  1 - \int pdf = ', 1-sum(occ3d) * dE
+    write(*,*)
+
+  end subroutine check_pdf
 
 end program main
